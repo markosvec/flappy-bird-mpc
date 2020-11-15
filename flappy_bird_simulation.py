@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 from bird import Bird
 from pipe import Pipe
 from base import Base
+import cvxpy as cp
 
 pygame.font.init() # initialize fonts
 
@@ -38,10 +39,10 @@ def draw_diagnostics(surface, bird, pipes):
     pipe_end_top, pipe_end_bottom = pipe_end_position
 
     # draw straight lines from the bird to the pipe corners
-    pygame.draw.line(surface, (0,255,0), bird_position, pipe_start_top, 3)
-    pygame.draw.line(surface, (0,255,0), bird_position, pipe_start_bottom ,3)
-    pygame.draw.line(surface, (0,255,0), bird_position, pipe_end_top, 3)
-    pygame.draw.line(surface, (0,255,0), bird_position, pipe_end_bottom ,3)
+    pygame.draw.line(surface, (0,255,0), (bird_position[0], bird_position[1]), pipe_start_top, 3)
+    pygame.draw.line(surface, (0,255,0), (bird_position[0], bird_position[1]), pipe_start_bottom ,3)
+    pygame.draw.line(surface, (0,255,0), (bird_position[0], bird_position[1]), pipe_end_top, 3)
+    pygame.draw.line(surface, (0,255,0), (bird_position[0], bird_position[1]), pipe_end_bottom ,3)
 
     pygame.draw.circle(surface, (255,0,0), (int(bird_position[0]), int(bird_position[1])), int(0.75*bird.IMGS[0].get_height()), 3) # draw a circle around the bird; because of some reason this doesn't accept floats
     pygame.draw.polygon(surface, (255,0,0), [(pipe_start_top[0],0), pipe_start_top, pipe_end_top, (pipe_end_top[0],0)], 3) # draw rectangle around the top pipe
@@ -66,22 +67,44 @@ def draw_window(win, bird, pipes, base, score, diagnostics=False):
 
     pygame.display.update()
 
-def bird_controller(bird, pipe):
-    # simple controler obtained with NN
+def bird_controller(bird, pipes):
 
-    jump = False 
+    bird_position = bird.physical_position() # get bird state
 
-    bird_y = bird.y
-    top_pipe_y  = pipe.height
-    bottom_pipe_y = pipe.bottom
+    # get pipe position
+    pipe = pipe_in_front(bird, pipes)
+    pipe_start_position, _ = pipe.physical_position()
+    pipe_start_top, pipe_start_bottom = pipe_start_position
 
-    dist_top = abs(bird_y - top_pipe_y)
-    dist_bottom = abs(bird_y - bottom_pipe_y)
-    output = dist_top - dist_bottom
+    x0 = np.array([bird_position[0], bird_position[1], bird_position[2]])
+    N = 2
+    n_states = 3
 
-    if output > 1:
-        jump = True
+    bigM = 100
+    robut_margin = 30
 
+    x = cp.Variable((n_states, N+1))
+    u = cp.Variable(N, boolean=True)
+    eps = cp.Variable((2,N))
+    objective = cp.Minimize(cp.sum(u) + cp.sum_squares(x[1,:] - pipe_start_bottom[1] + robut_margin) + 1e8*cp.sum_squares(eps))
+
+    constraints = []
+    for i in range(N):
+        constraints += [x[0,i+1] == x[0,i] + 5] # x dynamics
+        constraints += [x[1,i+1] == x[1,i] + x[2,i]] # y dynamics
+        constraints += [x[2,i+1] + 20 <= bigM*(1-u[i]), -x[2,i+1] - 20 <= bigM*(1-u[i])]
+        constraints += [x[2,i+1] - x[2,i] - 2 <= bigM*u[i], -x[2,i+1] + x[2,i] + 2 <= bigM*u[i]]
+
+        constraints += [x[1,i+1] >= 0, x[1,i+1] <= 730] # position of a bird inside the screen
+        constraints += [x[1,i+1] <= pipe_start_bottom[1] - robut_margin + eps[0,i], x[1,i+1] >= pipe_start_top[1] + robut_margin - eps[1,i]]
+        constraints += [eps[:,i] >= 0]
+
+    constraints += [x[:,0] == x0] # define bird initial state
+    prob = cp.Problem(objective, constraints)
+
+    result = prob.solve()
+    jump = int(u.value[0])
+    
     return jump
 
 def main():
@@ -93,9 +116,10 @@ def main():
         clock = pygame.time.Clock()
 
         score = 0
+        alive = True
 
         diagnostics = True
-        run = True
+        write_enable = False
         max_iter = 5000
         t = np.arange(max_iter)
         U = np.zeros((max_iter, 1))
@@ -110,20 +134,16 @@ def main():
                     pygame.quit()
                     quit()
 
-            # check whether the next pipe is pipe0 or pipe1
-            if len(pipes) > 1 and bird.x > pipes[0].x + pipes[0].PIPE_TOP.get_width():
-                pipe_ind = 1
-            else:
-                pipe_ind = 0
+            jump = bird_controller(bird, pipes) # implement the controler obtained by neaural net
 
-            jump = bird_controller(bird, pipes[pipe_ind]) # implement the controler obtained by neaural net
-
+            # save current position data
             if i == 0:
                 X[i] = 0
             else:
                 X[i] = X[i-1] + base.VEL
-            _, Y[i] = bird.physical_position()
+            _, Y[i], _ = bird.physical_position()
 
+            # save current input data
             if jump:
                 bird.jump()
                 U[i] = 1
@@ -137,7 +157,9 @@ def main():
 
                 # if bird collided, kill the bird
                 if pipe.collide(bird):
-                    break
+                    #alive = False
+                    #break
+                    pass
 
                 # if you are inside a pipe, consider it passed (unless you hit it, but it is handled as a collide event)
                 if not pipe.passed and pipe.x < bird.x:
@@ -158,7 +180,7 @@ def main():
                 pipes.remove(r)
 
             # if bird hit the bottom or the top of the screen, kill the bird
-            if bird.y + bird.img.get_height() >= 730 or bird.y < 0:
+            if bird.y + bird.img.get_height() > 730 or bird.y < 0 or not alive:
                 break
 
             base.move() # move the base
@@ -167,13 +189,14 @@ def main():
             print("Iteration: " + str(i))
        
         # write identification experiment data to the file
-        with open('identification_data.csv', 'w', newline='') as csvfile:
-            fieldnames = ['sample', 'x', 'y','u']
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        if write_enable:
+            with open('identification_data.csv', 'w', newline='') as csvfile:
+                fieldnames = ['sample', 'x', 'y','u']
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
-            writer.writeheader()
-            for i in t:
-                writer.writerow({'sample': i, 'x': X[i][0], 'y': Y[i][0], 'u': U[i][0]})
+                writer.writeheader()
+                for i in t:
+                    writer.writerow({'sample': i, 'x': X[i][0], 'y': Y[i][0], 'u': U[i][0]})
           
 
         # plot states and input

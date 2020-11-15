@@ -19,7 +19,7 @@ class Bird:
         self.img = self.IMGS[0]
 
     def physical_position(self):
-        return (self.x + self.IMGS[0].get_width()/2, self.y + self.IMGS[0].get_height()/2)
+        return (self.x + self.IMGS[0].get_width()/2, self.y + self.IMGS[0].get_height()/2, self.vel)
 
     def jump(self):
         self.vel = -20
