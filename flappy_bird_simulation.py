@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 from bird import Bird
 from pipe import Pipe
 from base import Base
+from controller import Controller
 import cvxpy as cp
 
 pygame.font.init() # initialize fonts
@@ -38,15 +39,19 @@ def draw_diagnostics(surface, bird, pipes):
     pipe_start_top, pipe_start_bottom = pipe_start_position
     pipe_end_top, pipe_end_bottom = pipe_end_position
 
-    # draw straight lines from the bird to the pipe corners
-    pygame.draw.line(surface, (0,255,0), (bird_position[0], bird_position[1]), pipe_start_top, 3)
-    pygame.draw.line(surface, (0,255,0), (bird_position[0], bird_position[1]), pipe_start_bottom ,3)
-    pygame.draw.line(surface, (0,255,0), (bird_position[0], bird_position[1]), pipe_end_top, 3)
-    pygame.draw.line(surface, (0,255,0), (bird_position[0], bird_position[1]), pipe_end_bottom ,3)
+    # draw constrained region between the pipes
+    pygame.draw.line(surface, (0,255,0), (0, pipe_end_top[1]), pipe_end_top, 3)
+    pygame.draw.line(surface, (0,255,0), (0, pipe_end_bottom[1]), pipe_end_bottom ,3)
 
-    pygame.draw.circle(surface, (255,0,0), (int(bird_position[0]), int(bird_position[1])), int(0.75*bird.IMGS[0].get_height()), 3) # draw a circle around the bird; because of some reason this doesn't accept floats
-    pygame.draw.polygon(surface, (255,0,0), [(pipe_start_top[0],0), pipe_start_top, pipe_end_top, (pipe_end_top[0],0)], 3) # draw rectangle around the top pipe
-    pygame.draw.polygon(surface, (255,0,0), [(pipe_start_bottom[0],730), pipe_start_bottom, pipe_end_bottom, (pipe_end_bottom[0],730)], 3) # draw rectangle around the bottom pipe
+    # draw straight lines from the bird to the pipe corners
+    #pygame.draw.line(surface, (0,255,0), (bird_position[0], bird_position[1]), pipe_start_top, 3)
+    #pygame.draw.line(surface, (0,255,0), (bird_position[0], bird_position[1]), pipe_start_bottom ,3)
+    #pygame.draw.line(surface, (0,255,0), (bird_position[0], bird_position[1]), pipe_end_top, 3)
+    #pygame.draw.line(surface, (0,255,0), (bird_position[0], bird_position[1]), pipe_end_bottom ,3)
+
+    #pygame.draw.circle(surface, (255,0,0), (int(bird_position[0]), int(bird_position[1])), int(0.75*bird.IMGS[0].get_height()), 3) # draw a circle around the bird; because of some reason this doesn't accept floats
+    #pygame.draw.polygon(surface, (255,0,0), [(pipe_start_top[0],0), pipe_start_top, pipe_end_top, (pipe_end_top[0],0)], 3) # draw rectangle around the top pipe
+    #pygame.draw.polygon(surface, (255,0,0), [(pipe_start_bottom[0],730), pipe_start_bottom, pipe_end_bottom, (pipe_end_bottom[0],730)], 3) # draw rectangle around the bottom pipe
 
 def draw_window(win, bird, pipes, base, score, diagnostics=False):
     win.blit(BG_IMG, (0,0))
@@ -67,51 +72,12 @@ def draw_window(win, bird, pipes, base, score, diagnostics=False):
 
     pygame.display.update()
 
-def bird_controller(bird, pipes):
-
-    bird_position = bird.physical_position() # get bird state
-
-    # get pipe position
-    pipe = pipe_in_front(bird, pipes)
-    pipe_start_position, _ = pipe.physical_position()
-    pipe_start_top, pipe_start_bottom = pipe_start_position
-
-    x0 = np.array([bird_position[0], bird_position[1], bird_position[2]])
-    N = 2
-    n_states = 3
-
-    bigM = 100
-    robut_margin = 30
-
-    x = cp.Variable((n_states, N+1))
-    u = cp.Variable(N, boolean=True)
-    eps = cp.Variable((2,N))
-    objective = cp.Minimize(cp.sum(u) + cp.sum_squares(x[1,:] - pipe_start_bottom[1] + robut_margin) + 1e8*cp.sum_squares(eps))
-
-    constraints = []
-    for i in range(N):
-        constraints += [x[0,i+1] == x[0,i] + 5] # x dynamics
-        constraints += [x[1,i+1] == x[1,i] + x[2,i]] # y dynamics
-        constraints += [x[2,i+1] + 20 <= bigM*(1-u[i]), -x[2,i+1] - 20 <= bigM*(1-u[i])]
-        constraints += [x[2,i+1] - x[2,i] - 2 <= bigM*u[i], -x[2,i+1] + x[2,i] + 2 <= bigM*u[i]]
-
-        constraints += [x[1,i+1] >= 0, x[1,i+1] <= 730] # position of a bird inside the screen
-        constraints += [x[1,i+1] <= pipe_start_bottom[1] - robut_margin + eps[0,i], x[1,i+1] >= pipe_start_top[1] + robut_margin - eps[1,i]]
-        constraints += [eps[:,i] >= 0]
-
-    constraints += [x[:,0] == x0] # define bird initial state
-    prob = cp.Problem(objective, constraints)
-
-    result = prob.solve()
-    jump = int(u.value[0])
-    
-    return jump
-
 def main():
 
         bird = Bird(230,350)
         base = Base(730)
         pipes = [Pipe(600)]
+        controller = Controller(5,3)
         win = pygame.display.set_mode((WIN_WIDTH, WIN_HEIGHT))
         clock = pygame.time.Clock()
 
@@ -134,7 +100,17 @@ def main():
                     pygame.quit()
                     quit()
 
-            jump = bird_controller(bird, pipes) # implement the controler obtained by neaural net
+            bird_position = bird.physical_position() # get bird state
+            # get pipe position
+            pipe = pipe_in_front(bird, pipes)
+            pipe_start_position, _ = pipe.physical_position()
+            pipe_start_top, pipe_start_bottom = pipe_start_position
+
+            x0 = np.array([bird_position[0], bird_position[1], bird_position[2]])
+            limits = np.array([pipe_start_bottom[1], pipe_start_top[1]])
+
+            controller.update(x0, limits)
+            jump = controller.solve()
 
             # save current position data
             if i == 0:
