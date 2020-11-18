@@ -17,7 +17,8 @@ WIN_WIDTH = 500
 WIN_HEIGHT = 800
 
 BG_IMG = pygame.transform.scale2x(pygame.image.load(os.path.join("imgs","bg.png")))
-STAT_FONT = pygame.font.SysFont("comicsans", 50)
+STAT_FONT = pygame.font.SysFont('Comic Sans MS', 35)
+STAT_FONT.set_bold(True)
 
 def pipe_in_front(bird, pipes):
 
@@ -35,23 +36,12 @@ def draw_diagnostics(surface, bird, pipes):
 
     # extract bird and pipe positions
     bird_position = bird.physical_position()
-    pipe_start_position, pipe_end_position = pipe.physical_position()
-    pipe_start_top, pipe_start_bottom = pipe_start_position
+    _, pipe_end_position = pipe.physical_position()
     pipe_end_top, pipe_end_bottom = pipe_end_position
 
     # draw constrained region between the pipes
-    pygame.draw.line(surface, (0,255,0), (0, pipe_end_top[1]), pipe_end_top, 3)
-    pygame.draw.line(surface, (0,255,0), (0, pipe_end_bottom[1]), pipe_end_bottom ,3)
-
-    # draw straight lines from the bird to the pipe corners
-    #pygame.draw.line(surface, (0,255,0), (bird_position[0], bird_position[1]), pipe_start_top, 3)
-    #pygame.draw.line(surface, (0,255,0), (bird_position[0], bird_position[1]), pipe_start_bottom ,3)
-    #pygame.draw.line(surface, (0,255,0), (bird_position[0], bird_position[1]), pipe_end_top, 3)
-    #pygame.draw.line(surface, (0,255,0), (bird_position[0], bird_position[1]), pipe_end_bottom ,3)
-
-    #pygame.draw.circle(surface, (255,0,0), (int(bird_position[0]), int(bird_position[1])), int(0.75*bird.IMGS[0].get_height()), 3) # draw a circle around the bird; because of some reason this doesn't accept floats
-    #pygame.draw.polygon(surface, (255,0,0), [(pipe_start_top[0],0), pipe_start_top, pipe_end_top, (pipe_end_top[0],0)], 3) # draw rectangle around the top pipe
-    #pygame.draw.polygon(surface, (255,0,0), [(pipe_start_bottom[0],730), pipe_start_bottom, pipe_end_bottom, (pipe_end_bottom[0],730)], 3) # draw rectangle around the bottom pipe
+    pygame.draw.line(surface, (255,100,0), (bird_position[0] - 40, pipe_end_top[1]), pipe_end_top, 4)
+    pygame.draw.line(surface, (255,100,0), (bird_position[0] - 40, pipe_end_bottom[1]), pipe_end_bottom ,4)
 
 def draw_window(win, bird, pipes, base, score, diagnostics=False):
     win.blit(BG_IMG, (0,0))
@@ -59,8 +49,8 @@ def draw_window(win, bird, pipes, base, score, diagnostics=False):
     for pipe in pipes:
         pipe.draw(win)
 
-    text = STAT_FONT.render("Score: " + str(score), 1, (255,255,255))
-    win.blit(text, (WIN_WIDTH - 10 - text.get_width(), 10))
+    text = STAT_FONT.render('Score: ' + str(score), 1, (50,50,50))
+    win.blit(text, (10, 10))
 
     base.draw(win)
     bird.draw(win)
@@ -77,21 +67,15 @@ def main():
         bird = Bird(230,350)
         base = Base(730)
         pipes = [Pipe(600)]
-        controller = Controller(5,3)
+        controller = Controller(3,3)
         win = pygame.display.set_mode((WIN_WIDTH, WIN_HEIGHT))
         clock = pygame.time.Clock()
 
         score = 0
         alive = True
-
         diagnostics = True
-        write_enable = False
-        max_iter = 5000
-        t = np.arange(max_iter)
-        U = np.zeros((max_iter, 1))
-        X = np.zeros((max_iter, 1))
-        Y = np.zeros((max_iter, 1))
-        for i in range(0,max_iter):
+
+        while(alive):
             clock.tick(30) # perform iterations every 30ms
 
             # check whether user requested the game to end
@@ -112,19 +96,9 @@ def main():
             controller.update(x0, limits)
             jump = controller.solve()
 
-            # save current position data
-            if i == 0:
-                X[i] = 0
-            else:
-                X[i] = X[i-1] + base.VEL
-            _, Y[i], _ = bird.physical_position()
-
             # save current input data
             if jump:
                 bird.jump()
-                U[i] = 1
-            else:
-                U[i] = 0
 
             bird.move() # move the bird
             add_pipe = False
@@ -133,9 +107,8 @@ def main():
 
                 # if bird collided, kill the bird
                 if pipe.collide(bird):
-                    #alive = False
-                    #break
-                    pass
+                    alive = False
+                    break
 
                 # if you are inside a pipe, consider it passed (unless you hit it, but it is handled as a collide event)
                 if not pipe.passed and pipe.x < bird.x:
@@ -161,40 +134,6 @@ def main():
 
             base.move() # move the base
             draw_window(win, bird, pipes, base, score, diagnostics) # draw the screen
-        
-            print("Iteration: " + str(i))
-       
-        # write identification experiment data to the file
-        if write_enable:
-            with open('identification_data.csv', 'w', newline='') as csvfile:
-                fieldnames = ['sample', 'x', 'y','u']
-                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-
-                writer.writeheader()
-                for i in t:
-                    writer.writerow({'sample': i, 'x': X[i][0], 'y': Y[i][0], 'u': U[i][0]})
-          
-
-        # plot states and input
-        _, (ax_x, ax_y, ax_u) = plt.subplots(3)
-
-        ax_x.plot(t, X)
-        ax_x.set_ylabel('Traveled distance (px)')
-        ax_x.grid()
-        ax_x.set_xlim([t[0], t[-1]])
-
-        ax_y.plot(t, Y)
-        ax_y.set_ylabel('Vertical position (px)')
-        ax_y.grid()
-        ax_y.set_xlim([t[0], t[-1]])
-
-        ax_u.plot(t, U, 'tab:red')
-        ax_u.set_ylabel('Input signal')
-        ax_u.set_xlabel('Iteration number')
-        ax_u.grid()
-        ax_u.set_xlim([t[0], t[-1]])
-
-        plt.show()
     
 if __name__ == "__main__":
     main()

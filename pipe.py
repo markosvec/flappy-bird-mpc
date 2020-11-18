@@ -21,6 +21,7 @@ class Pipe:
         self.set_height()
 
     def physical_position(self):
+        # returns positions of the vertices of both pipes (top and bottom)
         start_position = ((self.x, self.height), (self.x, self.bottom))
         end_position = ((self.x + self.PIPE_TOP.get_width(), self.height), (self.x + self.PIPE_BOTTOM.get_width(), self.bottom))
         return (start_position, end_position)
