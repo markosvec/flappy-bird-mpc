@@ -67,7 +67,7 @@ def main():
         bird = Bird(230,350)
         base = Base(730)
         pipes = [Pipe(600)]
-        controller = Controller(3,3)
+        controller = Controller(15,3)
         win = pygame.display.set_mode((WIN_WIDTH, WIN_HEIGHT))
         clock = pygame.time.Clock()
 
@@ -93,8 +93,7 @@ def main():
             x0 = np.array([bird_position[0], bird_position[1], bird_position[2]])
             limits = np.array([pipe_start_bottom[1], pipe_start_top[1]])
 
-            controller.update(x0, limits)
-            jump = controller.solve()
+            jump = controller.solve(x0, limits)
 
             # save current input data
             if jump:
