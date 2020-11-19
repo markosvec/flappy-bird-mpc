@@ -67,7 +67,7 @@ def main():
         bird = Bird(230,350)
         base = Base(730)
         pipes = [Pipe(600)]
-        controller = Controller(15,3)
+        controller = Controller(2,3)
         win = pygame.display.set_mode((WIN_WIDTH, WIN_HEIGHT))
         clock = pygame.time.Clock()
 
