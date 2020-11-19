@@ -1,1 +1,1 @@
-# flappy-bird-mpc
+# Flappy Bird MPC
