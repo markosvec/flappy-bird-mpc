@@ -1,5 +1,3 @@
-![Logo](https://gamedot.pl/uploads/media/default/0001/06/thumb_5778_default_newsview.jpeg)
-
 # Flappy Bird MPC
 Flappy Bird clone played by a Model Predictive Control (MPC) based algorithm implemented with CVXPY module.
 
